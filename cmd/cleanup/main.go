@@ -17,7 +17,9 @@ import (
 )
 
 var (
-	labelMarkedForDeletion = "marked-for-deletion"
+	labelMarkedForDeletion      = "marked-for-deletion"
+	errLastAttachedWithinCutoff = xerrors.Errorf("disk last attached within cutoff")
+	errDryRun                   = xerrors.Errorf("dry run enabled")
 )
 
 // disksClient is an interface for the compute API methods we use here
@@ -29,6 +31,9 @@ type disksClient interface {
 type diskIterator interface {
 	Next() (*computepb.Disk, error)
 }
+
+//go:generate moq -fmt goimports -out mock_disks_client.go . disksClient
+//go:generate moq -fmt goimports -out mock_disk_iterator.go . diskIterator
 
 func main() {
 	var (
@@ -93,19 +98,17 @@ func doMarkOne(ctx context.Context, dc disksClient, di diskIterator, projectID, 
 	if err != nil {
 		return xerrors.Errorf("iterating disks: %w", err)
 	}
+	log.Debug().Str("diskName", disk.GetName()).Int64("sizeGB", disk.GetSizeGb()).Str("lastAttachTime", disk.GetLastAttachTimestamp()).Str("labels", fmt.Sprintf("%v", disk.GetLabels())).Msg("got another disk")
 	lastAttachTimestampRFC3339 := disk.GetLastAttachTimestamp()
 	if lastAttachTimestampRFC3339 == "" {
-		log.Error().Str("diskName", disk.GetName()).Msg("disk last attached timestamp is nil")
-		return nil
+		return xerrors.Errorf("disk %s: last attached timestamp is empty", disk.GetName())
 	}
 	lastAttachTime, err := time.Parse(time.RFC3339, lastAttachTimestampRFC3339)
 	if err != nil {
-		log.Error().Str("diskName", disk.GetName()).Str("lastAttachTimestamp", lastAttachTimestampRFC3339).Err(err).Msg("invalid last attached timestamp")
-		return nil
+		return xerrors.Errorf("disk %s: last attached timestamp: %w", disk.GetName(), err)
 	}
 	if lastAttachTime.Add(cutoff).After(time.Now()) {
-		log.Debug().Str("diskName", disk.GetName()).Int64("sizeGB", disk.GetSizeGb()).Time("lastAttachTime", lastAttachTime).Dur("cutoff", cutoff).Msg("ignoring disk attached within cutoff")
-		return nil
+		return errLastAttachedWithinCutoff
 	}
 	diskLabels := disk.GetLabels()
 	if diskLabels == nil {
@@ -115,8 +118,7 @@ func doMarkOne(ctx context.Context, dc disksClient, di diskIterator, projectID, 
 	reqID := fmt.Sprintf("mark-for-cleanup-%s", disk.GetName())
 	diskLabelsFingerprint := disk.GetLabelFingerprint()
 	if dryRun {
-		log.Info().Str("diskName", disk.GetName()).Int64("sizeGB", disk.GetSizeGb()).Time("lastAttachTime", lastAttachTime).Dur("cutoff", cutoff).Str("labels", fmt.Sprintf("%+v", diskLabels)).Msg("would mark disk for deletion")
-		return nil
+		return errDryRun
 	}
 	log.Warn().Str("diskName", disk.GetName()).Int64("sizeGB", disk.GetSizeGb()).Time("lastAttachTime", lastAttachTime).Dur("cutoff", cutoff).Str("labels", fmt.Sprintf("%+v", diskLabels)).Msg("marking disk for deletion")
 	setLabelsReq := &computepb.SetLabelsDiskRequest{
@@ -130,21 +132,30 @@ func doMarkOne(ctx context.Context, dc disksClient, di diskIterator, projectID, 
 		},
 	}
 	if _, err := dc.SetLabels(ctx, setLabelsReq); err != nil {
-		log.Error().Str("diskName", disk.GetName()).Int64("sizeGB", disk.GetSizeGb()).Time("lastAttachTime", lastAttachTime).Dur("cutoff", cutoff).Str("labels", fmt.Sprintf("%+v", diskLabels)).Err(err).Msg("error updating disk labels")
-		return nil
+		return xerrors.Errorf("error updating disk labels: %w", err)
 	}
 	return nil
 }
 
 func doMarkCmd(ctx context.Context, disksClient disksClient, projectID, zone string, cutoff time.Duration, dryRun bool) error {
+	if dryRun {
+		log.Info().Msg("dry run mode is enabled -- no write operations will be performed")
+	}
 	diskIter := disksClient.List(ctx, &computepb.ListDisksRequest{
 		Project: projectID,
 		Zone:    zone,
 	})
 	for {
 		err := doMarkOne(ctx, disksClient, diskIter, projectID, zone, cutoff, dryRun)
-		if err == iterator.Done {
+		switch err {
+		case iterator.Done:
 			return nil
+		case errLastAttachedWithinCutoff:
+			log.Debug().Msg("ignoring disk last attached within cutoff")
+		case errDryRun:
+			log.Debug().Msg("not labelling disk as dry run enabled")
+		default:
+			log.Error().Err(err).Msg("handling disk")
 		}
 	}
 }
