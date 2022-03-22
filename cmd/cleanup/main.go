@@ -13,7 +13,6 @@ import (
 	"github.com/spf13/cobra"
 	"golang.org/x/xerrors"
 	"google.golang.org/api/iterator"
-	"google.golang.org/genproto/googleapis/cloud/compute/v1"
 	computepb "google.golang.org/genproto/googleapis/cloud/compute/v1"
 )
 
@@ -25,6 +24,10 @@ var (
 type disksClient interface {
 	List(context.Context, *computepb.ListDisksRequest, ...gax.CallOption) *computev1.DiskIterator
 	SetLabels(context.Context, *computepb.SetLabelsDiskRequest, ...gax.CallOption) (*computev1.Operation, error)
+}
+
+type diskIterator interface {
+	Next() (*computepb.Disk, error)
 }
 
 func main() {
@@ -82,56 +85,66 @@ func main() {
 	}
 }
 
+func doMarkOne(ctx context.Context, dc disksClient, di diskIterator, projectID, zone string, cutoff time.Duration, dryRun bool) error {
+	disk, err := di.Next()
+	if err == iterator.Done {
+		return err
+	}
+	if err != nil {
+		return xerrors.Errorf("iterating disks: %w", err)
+	}
+	lastAttachTimestampRFC3339 := disk.GetLastAttachTimestamp()
+	if lastAttachTimestampRFC3339 == "" {
+		log.Error().Str("diskName", disk.GetName()).Msg("disk last attached timestamp is nil")
+		return nil
+	}
+	lastAttachTime, err := time.Parse(time.RFC3339, lastAttachTimestampRFC3339)
+	if err != nil {
+		log.Error().Str("diskName", disk.GetName()).Str("lastAttachTimestamp", lastAttachTimestampRFC3339).Err(err).Msg("invalid last attached timestamp")
+		return nil
+	}
+	if lastAttachTime.Add(cutoff).After(time.Now()) {
+		log.Debug().Str("diskName", disk.GetName()).Int64("sizeGB", disk.GetSizeGb()).Time("lastAttachTime", lastAttachTime).Dur("cutoff", cutoff).Msg("ignoring disk attached within cutoff")
+		return nil
+	}
+	diskLabels := disk.GetLabels()
+	if diskLabels == nil {
+		diskLabels = make(map[string]string)
+	}
+	diskLabels[labelMarkedForDeletion] = time.Now().Format(time.RFC3339)
+	reqID := fmt.Sprintf("mark-for-cleanup-%s", disk.GetName())
+	diskLabelsFingerprint := disk.GetLabelFingerprint()
+	if dryRun {
+		log.Info().Str("diskName", disk.GetName()).Int64("sizeGB", disk.GetSizeGb()).Time("lastAttachTime", lastAttachTime).Dur("cutoff", cutoff).Str("labels", fmt.Sprintf("%+v", diskLabels)).Msg("would mark disk for deletion")
+		return nil
+	}
+	log.Warn().Str("diskName", disk.GetName()).Int64("sizeGB", disk.GetSizeGb()).Time("lastAttachTime", lastAttachTime).Dur("cutoff", cutoff).Str("labels", fmt.Sprintf("%+v", diskLabels)).Msg("marking disk for deletion")
+	setLabelsReq := &computepb.SetLabelsDiskRequest{
+		Project:   projectID,
+		RequestId: &reqID,
+		Resource:  fmt.Sprintf("%d", disk.GetId()),
+		Zone:      zone,
+		ZoneSetLabelsRequestResource: &computepb.ZoneSetLabelsRequest{
+			Labels:           diskLabels,
+			LabelFingerprint: &diskLabelsFingerprint,
+		},
+	}
+	if _, err := dc.SetLabels(ctx, setLabelsReq); err != nil {
+		log.Error().Str("diskName", disk.GetName()).Int64("sizeGB", disk.GetSizeGb()).Time("lastAttachTime", lastAttachTime).Dur("cutoff", cutoff).Str("labels", fmt.Sprintf("%+v", diskLabels)).Err(err).Msg("error updating disk labels")
+		return nil
+	}
+	return nil
+}
+
 func doMarkCmd(ctx context.Context, disksClient disksClient, projectID, zone string, cutoff time.Duration, dryRun bool) error {
-	diskIter := disksClient.List(ctx, &compute.ListDisksRequest{
+	diskIter := disksClient.List(ctx, &computepb.ListDisksRequest{
 		Project: projectID,
 		Zone:    zone,
 	})
 	for {
-		disk, err := diskIter.Next()
+		err := doMarkOne(ctx, disksClient, diskIter, projectID, zone, cutoff, dryRun)
 		if err == iterator.Done {
 			return nil
-		}
-		if err != nil {
-			return xerrors.Errorf("iterating disks: %w", err)
-		}
-		lastAttachTimestampRFC3339 := disk.GetLastAttachTimestamp()
-		if lastAttachTimestampRFC3339 == "" {
-			log.Error().Str("diskName", disk.GetName()).Msg("disk last attached timestamp is nil")
-			continue
-		}
-		lastAttachTime, err := time.Parse(time.RFC3339, lastAttachTimestampRFC3339)
-		if err != nil {
-			log.Error().Str("diskName", disk.GetName()).Str("lastAttachTimestamp", lastAttachTimestampRFC3339).Err(err).Msg("invalid last attached timestamp")
-			continue
-		}
-		if lastAttachTime.Add(cutoff).After(time.Now()) {
-			log.Debug().Str("diskName", disk.GetName()).Int64("sizeGB", disk.GetSizeGb()).Time("lastAttachTime", lastAttachTime).Dur("cutoff", cutoff).Msg("ignoring disk attached within cutoff")
-			continue
-		}
-		diskLabels := disk.GetLabels()
-		if diskLabels == nil {
-			diskLabels = make(map[string]string)
-		}
-		diskLabels[labelMarkedForDeletion] = time.Now().Format(time.RFC3339)
-		reqID := fmt.Sprintf("mark-for-cleanup-%s", disk.GetName())
-		diskLabelsFingerprint := disk.GetLabelFingerprint()
-		if dryRun {
-			log.Info().Str("diskName", disk.GetName()).Int64("sizeGB", disk.GetSizeGb()).Time("lastAttachTime", lastAttachTime).Dur("cutoff", cutoff).Str("labels", fmt.Sprintf("%+v", diskLabels)).Msg("would mark disk for deletion")
-		} else {
-			log.Warn().Str("diskName", disk.GetName()).Int64("sizeGB", disk.GetSizeGb()).Time("lastAttachTime", lastAttachTime).Dur("cutoff", cutoff).Str("labels", fmt.Sprintf("%+v", diskLabels)).Msg("marking disk for deletion")
-			if _, err := disksClient.SetLabels(ctx, &compute.SetLabelsDiskRequest{
-				Project:   projectID,
-				RequestId: &reqID,
-				Resource:  fmt.Sprintf("%d", disk.GetId()),
-				Zone:      zone,
-				ZoneSetLabelsRequestResource: &compute.ZoneSetLabelsRequest{
-					Labels:           diskLabels,
-					LabelFingerprint: &diskLabelsFingerprint,
-				},
-			}); err != nil {
-				log.Error().Str("diskName", disk.GetName()).Int64("sizeGB", disk.GetSizeGb()).Time("lastAttachTime", lastAttachTime).Dur("cutoff", cutoff).Str("labels", fmt.Sprintf("%+v", diskLabels)).Err(err).Msg("error updating disk labels")
-			}
 		}
 	}
 }
