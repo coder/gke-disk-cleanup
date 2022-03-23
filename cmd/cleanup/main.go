@@ -18,6 +18,7 @@ import (
 )
 
 var (
+	filterGoogGkeVolume         = "labels.goog-gke-volume:*"
 	labelMarkedForDeletion      = "marked-for-deletion"
 	errLastAttachedWithinCutoff = xerrors.Errorf("disk last attached within cutoff")
 	errAlreadyLabelled          = xerrors.Errorf("disk already labelled")
@@ -71,7 +72,7 @@ func main() {
 			return doMarkCmd(ctx, disksClient, projectID, zone, filter, cutoff, dryRun)
 		},
 	}
-	markCmd.PersistentFlags().StringVar(&filter, "filter", "", "filters for list disk request")
+	markCmd.PersistentFlags().StringVar(&filter, "filter", filterGoogGkeVolume, "filters for list disk request")
 	markCmd.PersistentFlags().Int64Var(&lastAttachedCutoffDays, "last-attached-cutoff-days", 30, "how many days since the disk was last attached or detached")
 
 	cleanupCmd := &cobra.Command{
@@ -151,7 +152,7 @@ func doMarkOne(ctx context.Context, dc disksClient, di diskIterator, projectID, 
 		return errAlreadyLabelled
 	}
 	log.Warn().Str("diskName", disk.GetName()).Int64("sizeGB", disk.GetSizeGb()).Time("lastAttachTime", lastAttachTime).Str("labels", fmt.Sprintf("%+v", diskLabels)).Msg("marking disk for deletion")
-	diskLabels[labelMarkedForDeletion] = time.Now().Format(time.RFC3339)
+	diskLabels[labelMarkedForDeletion] = "true"
 	reqID := fmt.Sprintf("mark-for-cleanup-%s", disk.GetName())
 	diskLabelsFingerprint := disk.GetLabelFingerprint()
 	setLabelsReq := &computepb.SetLabelsDiskRequest{
