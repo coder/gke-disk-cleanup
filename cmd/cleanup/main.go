@@ -48,7 +48,7 @@ func main() {
 		filter                 string
 	)
 	// pretty logging
-	log.Logger = log.Output(zerolog.ConsoleWriter{Out: os.Stderr})
+	log.Logger = log.Output(zerolog.ConsoleWriter{Out: os.Stderr}).Level(zerolog.InfoLevel)
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
@@ -111,7 +111,7 @@ func doMarkCmd(ctx context.Context, disksClient disksClient, projectID, zone, fi
 		case errLastAttachedWithinCutoff:
 			log.Debug().Msg("ignoring disk last attached within cutoff")
 		case errDryRun:
-			log.Info().Msg("not labelling disk as dry run enabled")
+			log.Debug().Msg("not labelling disk as dry run enabled")
 		default:
 			log.Error().Err(err).Msg("unable to label disk for cleanup")
 		}
@@ -142,18 +142,18 @@ func doMarkOne(ctx context.Context, dc disksClient, di diskIterator, projectID, 
 	if diskLabels == nil {
 		diskLabels = make(map[string]string)
 	}
+	if dryRun {
+		log.Warn().Str("diskName", disk.GetName()).Int64("sizeGB", disk.GetSizeGb()).Time("lastAttachTime", lastAttachTime).Str("labels", fmt.Sprintf("%+v", diskLabels)).Msg("would mark disk for deletion")
+		return errDryRun
+	}
 	if _, found := diskLabels[labelMarkedForDeletion]; found {
-		log.Debug().Str("diskName", disk.GetName()).Int64("sizeGB", disk.GetSizeGb()).Time("lastAttachTime", lastAttachTime).Dur("cutoff", cutoff).Str("labels", fmt.Sprintf("%+v", diskLabels)).Msg("disk already labelled")
+		log.Debug().Str("diskName", disk.GetName()).Int64("sizeGB", disk.GetSizeGb()).Time("lastAttachTime", lastAttachTime).Str("labels", fmt.Sprintf("%+v", diskLabels)).Msg("disk already labelled")
 		return errAlreadyLabelled
 	}
+	log.Warn().Str("diskName", disk.GetName()).Int64("sizeGB", disk.GetSizeGb()).Time("lastAttachTime", lastAttachTime).Str("labels", fmt.Sprintf("%+v", diskLabels)).Msg("marking disk for deletion")
 	diskLabels[labelMarkedForDeletion] = time.Now().Format(time.RFC3339)
 	reqID := fmt.Sprintf("mark-for-cleanup-%s", disk.GetName())
 	diskLabelsFingerprint := disk.GetLabelFingerprint()
-	if dryRun {
-		log.Warn().Str("diskName", disk.GetName()).Int64("sizeGB", disk.GetSizeGb()).Time("lastAttachTime", lastAttachTime).Dur("cutoff", cutoff).Str("labels", fmt.Sprintf("%+v", diskLabels)).Msg("would mark disk for deletion")
-		return errDryRun
-	}
-	log.Warn().Str("diskName", disk.GetName()).Int64("sizeGB", disk.GetSizeGb()).Time("lastAttachTime", lastAttachTime).Dur("cutoff", cutoff).Str("labels", fmt.Sprintf("%+v", diskLabels)).Msg("marking disk for deletion")
 	setLabelsReq := &computepb.SetLabelsDiskRequest{
 		Project:   projectID,
 		RequestId: &reqID,
