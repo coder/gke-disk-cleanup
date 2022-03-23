@@ -14,11 +14,13 @@ import (
 	"golang.org/x/xerrors"
 	"google.golang.org/api/iterator"
 	computepb "google.golang.org/genproto/googleapis/cloud/compute/v1"
+	"k8s.io/utils/pointer"
 )
 
 var (
 	labelMarkedForDeletion      = "marked-for-deletion"
 	errLastAttachedWithinCutoff = xerrors.Errorf("disk last attached within cutoff")
+	errAlreadyLabelled          = xerrors.Errorf("disk already labelled")
 	errDryRun                   = xerrors.Errorf("dry run enabled")
 )
 
@@ -43,6 +45,7 @@ func main() {
 		lastAttachedCutoffDays int64
 		projectID              string
 		zone                   string
+		filter                 string
 	)
 	// pretty logging
 	log.Logger = log.Output(zerolog.ConsoleWriter{Out: os.Stderr})
@@ -57,7 +60,6 @@ func main() {
 		},
 	}
 	rootCmd.PersistentFlags().BoolVar(&dryRun, "dry-run", true, "only log the actions that would be taken")
-	rootCmd.PersistentFlags().Int64Var(&lastAttachedCutoffDays, "last-attached-cutoff-days", 30, "how many days since the disk was last attached or detached")
 	rootCmd.PersistentFlags().StringVar(&projectID, "project-id", "default", "google project id")
 	rootCmd.PersistentFlags().StringVar(&zone, "zone", "us-east1-a", "google compute zone")
 
@@ -66,15 +68,17 @@ func main() {
 		Short: "mark disks for later deletion",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			cutoff := 24 * time.Hour * time.Duration(lastAttachedCutoffDays)
-			return doMarkCmd(ctx, disksClient, projectID, zone, cutoff, dryRun)
+			return doMarkCmd(ctx, disksClient, projectID, zone, filter, cutoff, dryRun)
 		},
 	}
+	markCmd.PersistentFlags().StringVar(&filter, "filter", "", "filters for list disk request")
+	markCmd.PersistentFlags().Int64Var(&lastAttachedCutoffDays, "last-attached-cutoff-days", 30, "how many days since the disk was last attached or detached")
 
 	cleanupCmd := &cobra.Command{
 		Use:   "cleanup",
 		Short: "cleanup disks in gcloud",
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			return doCleanupCmd(ctx, disksClient, projectID, dryRun)
+			return doCleanupCmd(ctx, disksClient, projectID, zone, dryRun)
 		},
 	}
 
@@ -87,6 +91,30 @@ func main() {
 
 	if err := rootCmd.ExecuteContext(ctx); err != nil {
 		log.Error().Err(err).Msg("failed to execute")
+	}
+}
+
+func doMarkCmd(ctx context.Context, disksClient disksClient, projectID, zone, filter string, cutoff time.Duration, dryRun bool) error {
+	if dryRun {
+		log.Info().Msg("dry run mode is enabled -- no write operations will be performed")
+	}
+	diskIter := disksClient.List(ctx, &computepb.ListDisksRequest{
+		Project: projectID,
+		Zone:    zone,
+		Filter:  &filter,
+	})
+	for {
+		err := doMarkOne(ctx, disksClient, diskIter, projectID, zone, cutoff, dryRun)
+		switch err {
+		case iterator.Done:
+			return nil
+		case errLastAttachedWithinCutoff:
+			log.Debug().Msg("ignoring disk last attached within cutoff")
+		case errDryRun:
+			log.Info().Msg("not labelling disk as dry run enabled")
+		default:
+			log.Error().Err(err).Msg("unable to label disk for cleanup")
+		}
 	}
 }
 
@@ -114,10 +142,15 @@ func doMarkOne(ctx context.Context, dc disksClient, di diskIterator, projectID, 
 	if diskLabels == nil {
 		diskLabels = make(map[string]string)
 	}
+	if _, found := diskLabels[labelMarkedForDeletion]; found {
+		log.Debug().Str("diskName", disk.GetName()).Int64("sizeGB", disk.GetSizeGb()).Time("lastAttachTime", lastAttachTime).Dur("cutoff", cutoff).Str("labels", fmt.Sprintf("%+v", diskLabels)).Msg("disk already labelled")
+		return errAlreadyLabelled
+	}
 	diskLabels[labelMarkedForDeletion] = time.Now().Format(time.RFC3339)
 	reqID := fmt.Sprintf("mark-for-cleanup-%s", disk.GetName())
 	diskLabelsFingerprint := disk.GetLabelFingerprint()
 	if dryRun {
+		log.Warn().Str("diskName", disk.GetName()).Int64("sizeGB", disk.GetSizeGb()).Time("lastAttachTime", lastAttachTime).Dur("cutoff", cutoff).Str("labels", fmt.Sprintf("%+v", diskLabels)).Msg("would mark disk for deletion")
 		return errDryRun
 	}
 	log.Warn().Str("diskName", disk.GetName()).Int64("sizeGB", disk.GetSizeGb()).Time("lastAttachTime", lastAttachTime).Dur("cutoff", cutoff).Str("labels", fmt.Sprintf("%+v", diskLabels)).Msg("marking disk for deletion")
@@ -137,29 +170,28 @@ func doMarkOne(ctx context.Context, dc disksClient, di diskIterator, projectID, 
 	return nil
 }
 
-func doMarkCmd(ctx context.Context, disksClient disksClient, projectID, zone string, cutoff time.Duration, dryRun bool) error {
+func doCleanupCmd(ctx context.Context, disksClient disksClient, projectID, zone string, dryRun bool) error {
 	if dryRun {
-		log.Info().Msg("dry run mode is enabled -- no write operations will be performed")
+		log.Info().Msg("dry run mode is enabled -- no delete operations will be performed")
 	}
 	diskIter := disksClient.List(ctx, &computepb.ListDisksRequest{
 		Project: projectID,
 		Zone:    zone,
+		Filter:  pointer.String(fmt.Sprintf("labels.%s:*", labelMarkedForDeletion)),
 	})
 	for {
-		err := doMarkOne(ctx, disksClient, diskIter, projectID, zone, cutoff, dryRun)
+		err := doCleanupOne(ctx, disksClient, diskIter, projectID, zone, dryRun)
 		switch err {
 		case iterator.Done:
 			return nil
-		case errLastAttachedWithinCutoff:
-			log.Debug().Msg("ignoring disk last attached within cutoff")
 		case errDryRun:
 			log.Debug().Msg("not labelling disk as dry run enabled")
 		default:
-			log.Error().Err(err).Msg("handling disk")
+			log.Error().Err(err).Msg("unable to delete disk")
 		}
 	}
 }
 
-func doCleanupCmd(ctx context.Context, disksClient disksClient, projectID string, dryRun bool) error {
+func doCleanupOne(ctx context.Context, disksClient disksClient, diskIterator diskIterator, projectID, zone string, dryRun bool) error {
 	return xerrors.Errorf("TODO: not implemented yet")
 }
