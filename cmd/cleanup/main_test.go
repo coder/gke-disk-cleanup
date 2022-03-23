@@ -289,40 +289,50 @@ func Test_CleanupCmd(t *testing.T) {
 			NextFunc: func() (*computepb.Disk, error) {
 				return &computepb.Disk{
 					Name:   pointer.String("test-disk"),
-					Labels: map[string]string{"some-label": "some-value"},
+					Labels: map[string]string{labelMarkedForDeletion: "false"},
 				}, nil
 			},
 		}
 		err := doCleanupOne(p.ctx, p.dc, p.di, p.projectID, p.zone, p.doSnapshot, p.dryRun)
-		require.ErrorContains(t, err, "disk test-disk: missing required label")
+		require.ErrorContains(t, err, "disk test-disk: expected label value true but got \"false\"")
 	})
 
 	t.Run("create snapshot error", func(t *testing.T) {
 		t.Parallel()
 		p := setup(t)
+		p.dryRun = false
 
 		p.di = &diskIteratorMock{
 			NextFunc: func() (*computepb.Disk, error) {
 				return &computepb.Disk{
 					Name:   pointer.String("test-disk"),
-					Labels: map[string]string{labelMarkedForDeletion: "sometime"},
+					Labels: map[string]string{labelMarkedForDeletion: "true"},
 				}, nil
 			},
 		}
+
+		p.dc = &disksClientMock{
+			CreateSnapshotFunc: func(contextMoqParam context.Context, createSnapshotDiskRequest *computepb.CreateSnapshotDiskRequest, callOptions ...gax.CallOption) (*computev1.Operation, error) {
+				require.Equal(t, createSnapshotDiskRequest.Disk, "test-disk")
+				require.Equal(t, createSnapshotDiskRequest.Project, p.projectID)
+				require.Equal(t, createSnapshotDiskRequest.Zone, p.zone)
+				return nil, xerrors.Errorf("google says no")
+			},
+		}
+
 		err := doCleanupOne(p.ctx, p.dc, p.di, p.projectID, p.zone, p.doSnapshot, p.dryRun)
-		require.ErrorContains(t, err, "disk test-disk: failed to snapshot before deletion: google says no")
+		require.ErrorContains(t, err, "disk test-disk: failed to create snapshot before deletion: google says no")
 	})
 
 	t.Run("dry run", func(t *testing.T) {
 		t.Parallel()
 		p := setup(t)
-		p.dryRun = true
 
 		p.di = &diskIteratorMock{
 			NextFunc: func() (*computepb.Disk, error) {
 				return &computepb.Disk{
 					Name:   pointer.String("test-disk"),
-					Labels: map[string]string{labelMarkedForDeletion: "sometime"},
+					Labels: map[string]string{labelMarkedForDeletion: "true"},
 				}, nil
 			},
 		}
@@ -333,29 +343,62 @@ func Test_CleanupCmd(t *testing.T) {
 	t.Run("delete error", func(t *testing.T) {
 		t.Parallel()
 		p := setup(t)
+		p.dryRun = false
+		p.doSnapshot = false // to side-step op.Wait(ctx) panic in unit test
 
 		p.di = &diskIteratorMock{
 			NextFunc: func() (*computepb.Disk, error) {
 				return &computepb.Disk{
 					Name:   pointer.String("test-disk"),
-					Labels: map[string]string{labelMarkedForDeletion: "sometime"},
+					Labels: map[string]string{labelMarkedForDeletion: "true"},
 				}, nil
 			},
 		}
+
+		p.dc = &disksClientMock{
+			CreateSnapshotFunc: func(contextMoqParam context.Context, createSnapshotDiskRequest *computepb.CreateSnapshotDiskRequest, callOptions ...gax.CallOption) (*computev1.Operation, error) {
+				require.Equal(t, createSnapshotDiskRequest.Disk, "test-disk")
+				require.Equal(t, createSnapshotDiskRequest.Project, p.projectID)
+				require.Equal(t, createSnapshotDiskRequest.Zone, p.zone)
+				return &computev1.Operation{}, nil
+			},
+			DeleteFunc: func(contextMoqParam context.Context, deleteDiskRequest *computepb.DeleteDiskRequest, callOptions ...gax.CallOption) (*computev1.Operation, error) {
+				require.Equal(t, deleteDiskRequest.Disk, "test-disk")
+				require.Equal(t, deleteDiskRequest.Project, p.projectID)
+				require.Equal(t, deleteDiskRequest.RequestId, pointer.String("delete-disk-test-disk"))
+				require.Equal(t, deleteDiskRequest.Zone, p.zone)
+
+				return nil, xerrors.Errorf("google says no")
+			},
+		}
+
 		err := doCleanupOne(p.ctx, p.dc, p.di, p.projectID, p.zone, p.doSnapshot, p.dryRun)
-		require.ErrorContains(t, err, "disk test-disk: failed to delete: google says no")
+		require.ErrorContains(t, err, "failed to delete disk test-disk: google says no")
 	})
 
 	t.Run("success", func(t *testing.T) {
 		t.Parallel()
 		p := setup(t)
+		p.dryRun = false
+		p.doSnapshot = false // to side-step op.Wait(ctx) panic in unit test
 
 		p.di = &diskIteratorMock{
 			NextFunc: func() (*computepb.Disk, error) {
 				return &computepb.Disk{
 					Name:   pointer.String("test-disk"),
-					Labels: map[string]string{labelMarkedForDeletion: "sometime"},
+					Labels: map[string]string{labelMarkedForDeletion: "true"},
 				}, nil
+			},
+		}
+
+		p.dc = &disksClientMock{
+			DeleteFunc: func(contextMoqParam context.Context, deleteDiskRequest *computepb.DeleteDiskRequest, callOptions ...gax.CallOption) (*computev1.Operation, error) {
+				require.Equal(t, deleteDiskRequest.Disk, "test-disk")
+				require.Equal(t, deleteDiskRequest.Project, p.projectID)
+				require.Equal(t, deleteDiskRequest.RequestId, pointer.String("delete-disk-test-disk"))
+				require.Equal(t, deleteDiskRequest.Zone, p.zone)
+
+				return &computev1.Operation{}, nil
 			},
 		}
 		err := doCleanupOne(p.ctx, p.dc, p.di, p.projectID, p.zone, p.doSnapshot, p.dryRun)

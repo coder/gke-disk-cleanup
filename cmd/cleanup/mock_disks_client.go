@@ -25,6 +25,9 @@ var _ disksClient = &disksClientMock{}
 // 			CreateSnapshotFunc: func(contextMoqParam context.Context, createSnapshotDiskRequest *computepb.CreateSnapshotDiskRequest, callOptions ...gax.CallOption) (*computev1.Operation, error) {
 // 				panic("mock out the CreateSnapshot method")
 // 			},
+// 			DeleteFunc: func(contextMoqParam context.Context, deleteDiskRequest *computepb.DeleteDiskRequest, callOptions ...gax.CallOption) (*computev1.Operation, error) {
+// 				panic("mock out the Delete method")
+// 			},
 // 			ListFunc: func(contextMoqParam context.Context, listDisksRequest *computepb.ListDisksRequest, callOptions ...gax.CallOption) *computev1.DiskIterator {
 // 				panic("mock out the List method")
 // 			},
@@ -41,6 +44,9 @@ type disksClientMock struct {
 	// CreateSnapshotFunc mocks the CreateSnapshot method.
 	CreateSnapshotFunc func(contextMoqParam context.Context, createSnapshotDiskRequest *computepb.CreateSnapshotDiskRequest, callOptions ...gax.CallOption) (*computev1.Operation, error)
 
+	// DeleteFunc mocks the Delete method.
+	DeleteFunc func(contextMoqParam context.Context, deleteDiskRequest *computepb.DeleteDiskRequest, callOptions ...gax.CallOption) (*computev1.Operation, error)
+
 	// ListFunc mocks the List method.
 	ListFunc func(contextMoqParam context.Context, listDisksRequest *computepb.ListDisksRequest, callOptions ...gax.CallOption) *computev1.DiskIterator
 
@@ -55,6 +61,15 @@ type disksClientMock struct {
 			ContextMoqParam context.Context
 			// CreateSnapshotDiskRequest is the createSnapshotDiskRequest argument value.
 			CreateSnapshotDiskRequest *computepb.CreateSnapshotDiskRequest
+			// CallOptions is the callOptions argument value.
+			CallOptions []gax.CallOption
+		}
+		// Delete holds details about calls to the Delete method.
+		Delete []struct {
+			// ContextMoqParam is the contextMoqParam argument value.
+			ContextMoqParam context.Context
+			// DeleteDiskRequest is the deleteDiskRequest argument value.
+			DeleteDiskRequest *computepb.DeleteDiskRequest
 			// CallOptions is the callOptions argument value.
 			CallOptions []gax.CallOption
 		}
@@ -78,6 +93,7 @@ type disksClientMock struct {
 		}
 	}
 	lockCreateSnapshot sync.RWMutex
+	lockDelete         sync.RWMutex
 	lockList           sync.RWMutex
 	lockSetLabels      sync.RWMutex
 }
@@ -118,6 +134,45 @@ func (mock *disksClientMock) CreateSnapshotCalls() []struct {
 	mock.lockCreateSnapshot.RLock()
 	calls = mock.calls.CreateSnapshot
 	mock.lockCreateSnapshot.RUnlock()
+	return calls
+}
+
+// Delete calls DeleteFunc.
+func (mock *disksClientMock) Delete(contextMoqParam context.Context, deleteDiskRequest *computepb.DeleteDiskRequest, callOptions ...gax.CallOption) (*computev1.Operation, error) {
+	if mock.DeleteFunc == nil {
+		panic("disksClientMock.DeleteFunc: method is nil but disksClient.Delete was just called")
+	}
+	callInfo := struct {
+		ContextMoqParam   context.Context
+		DeleteDiskRequest *computepb.DeleteDiskRequest
+		CallOptions       []gax.CallOption
+	}{
+		ContextMoqParam:   contextMoqParam,
+		DeleteDiskRequest: deleteDiskRequest,
+		CallOptions:       callOptions,
+	}
+	mock.lockDelete.Lock()
+	mock.calls.Delete = append(mock.calls.Delete, callInfo)
+	mock.lockDelete.Unlock()
+	return mock.DeleteFunc(contextMoqParam, deleteDiskRequest, callOptions...)
+}
+
+// DeleteCalls gets all the calls that were made to Delete.
+// Check the length with:
+//     len(mockeddisksClient.DeleteCalls())
+func (mock *disksClientMock) DeleteCalls() []struct {
+	ContextMoqParam   context.Context
+	DeleteDiskRequest *computepb.DeleteDiskRequest
+	CallOptions       []gax.CallOption
+} {
+	var calls []struct {
+		ContextMoqParam   context.Context
+		DeleteDiskRequest *computepb.DeleteDiskRequest
+		CallOptions       []gax.CallOption
+	}
+	mock.lockDelete.RLock()
+	calls = mock.calls.Delete
+	mock.lockDelete.RUnlock()
 	return calls
 }
 

@@ -28,6 +28,7 @@ var (
 // disksClient is an interface for the compute API methods we use here
 type disksClient interface {
 	CreateSnapshot(context.Context, *computepb.CreateSnapshotDiskRequest, ...gax.CallOption) (*computev1.Operation, error)
+	Delete(context.Context, *computepb.DeleteDiskRequest, ...gax.CallOption) (*computev1.Operation, error)
 	List(context.Context, *computepb.ListDisksRequest, ...gax.CallOption) *computev1.DiskIterator
 	SetLabels(context.Context, *computepb.SetLabelsDiskRequest, ...gax.CallOption) (*computev1.Operation, error)
 }
@@ -202,22 +203,64 @@ func doCleanupOne(ctx context.Context, dc disksClient, di diskIterator, projectI
 	if err == iterator.Done {
 		return err
 	}
+
 	if err != nil {
 		return xerrors.Errorf("iterating disks: %w", err)
 	}
+
 	diskLabels := disk.GetLabels()
+
 	if diskLabels == nil {
 		return xerrors.Errorf("skipping disk %s: missing required label", disk.GetName())
 	}
+
 	if labelValue, found := diskLabels[labelMarkedForDeletion]; !found {
 		return xerrors.Errorf("skipping disk %s: missing required label", disk.GetName())
 	} else if labelValue != "true" {
 		return xerrors.Errorf("skipping disk %s: expected label value true but got %q", disk.GetName(), labelValue)
 	}
-	if doSnapshot {
-		log.Info().Str("diskName", disk.GetName()).Int64("sizeGB", disk.GetSizeGb()).Str("lastAttachTime", disk.GetLastAttachTimestamp()).Str("labels", fmt.Sprintf("%+v", diskLabels)).Msg("snapshotting disk prior to deletion")
 
+	if doSnapshot {
+		if dryRun {
+			log.Info().Str("diskName", disk.GetName()).Int64("sizeGB", disk.GetSizeGb()).Str("lastAttachTime", disk.GetLastAttachTimestamp()).Str("labels", fmt.Sprintf("%+v", diskLabels)).Msg("dry run - would snapshot disk prior to deletion")
+		} else {
+			log.Info().Str("diskName", disk.GetName()).Int64("sizeGB", disk.GetSizeGb()).Str("lastAttachTime", disk.GetLastAttachTimestamp()).Str("labels", fmt.Sprintf("%+v", diskLabels)).Msg("snapshotting disk prior to deletion")
+			req := &computepb.CreateSnapshotDiskRequest{
+				Disk:             disk.GetName(),
+				Project:          projectID,
+				RequestId:        pointer.String(fmt.Sprintf("snapshot-disk-%s", disk.GetName())),
+				SnapshotResource: nil, // TODO: does this need to be non-nil?
+				Zone:             zone,
+			}
+			op, err := dc.CreateSnapshot(ctx, req)
+			if err != nil {
+				return xerrors.Errorf("disk %s: failed to create snapshot before deletion: %w", disk.GetName(), err)
+			}
+
+			// wait for snapshot to complete
+			err = op.Wait(ctx)
+			if err != nil {
+				return xerrors.Errorf("disk %s: failed to wait for snapshot to be ready: %w", disk.GetName(), err)
+			}
+		}
 	}
-	log.Warn().Str("diskName", disk.GetName()).Int64("sizeGB", disk.GetSizeGb()).Str("lastAttachTime", disk.GetLastAttachTimestamp()).Str("labels", fmt.Sprintf("%+v", diskLabels)).Msg("snapshotting disk prior to deletion")
+
+	if dryRun {
+		log.Warn().Str("diskName", disk.GetName()).Int64("sizeGB", disk.GetSizeGb()).Str("lastAttachTime", disk.GetLastAttachTimestamp()).Str("labels", fmt.Sprintf("%+v", diskLabels)).Msg("dry run -- would delete disk")
+		return errDryRun
+	}
+
+	log.Warn().Str("diskName", disk.GetName()).Int64("sizeGB", disk.GetSizeGb()).Str("lastAttachTime", disk.GetLastAttachTimestamp()).Str("labels", fmt.Sprintf("%+v", diskLabels)).Msg("deleting disk")
+	req := &computepb.DeleteDiskRequest{
+		Disk:      disk.GetName(),
+		Project:   projectID,
+		RequestId: pointer.String(fmt.Sprintf("delete-disk-%s", disk.GetName())),
+		Zone:      zone,
+	}
+	_, err = dc.Delete(ctx, req)
+	if err != nil {
+		return xerrors.Errorf("failed to delete disk %s: %w", disk.GetName(), err)
+	}
+
 	return nil
 }
