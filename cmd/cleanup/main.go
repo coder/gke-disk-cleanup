@@ -27,6 +27,7 @@ var (
 
 // disksClient is an interface for the compute API methods we use here
 type disksClient interface {
+	CreateSnapshot(context.Context, *computepb.CreateSnapshotDiskRequest, ...gax.CallOption) (*computev1.Operation, error)
 	List(context.Context, *computepb.ListDisksRequest, ...gax.CallOption) *computev1.DiskIterator
 	SetLabels(context.Context, *computepb.SetLabelsDiskRequest, ...gax.CallOption) (*computev1.Operation, error)
 }
@@ -43,6 +44,7 @@ func main() {
 		disksClient            *computev1.DisksClient
 		err                    error
 		dryRun                 bool
+		doSnapshot             bool
 		lastAttachedCutoffDays int64
 		projectID              string
 		zone                   string
@@ -79,9 +81,11 @@ func main() {
 		Use:   "cleanup",
 		Short: "cleanup disks in gcloud",
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			return doCleanupCmd(ctx, disksClient, projectID, zone, dryRun)
+			return doCleanupCmd(ctx, disksClient, projectID, zone, doSnapshot, dryRun)
 		},
 	}
+
+	cleanupCmd.PersistentFlags().BoolVar(&doSnapshot, "do-snapshot", true, "create a snapshot of the volume prior to deletion")
 
 	disksClient, err = computev1.NewDisksRESTClient(ctx)
 	if err != nil {
@@ -171,7 +175,7 @@ func doMarkOne(ctx context.Context, dc disksClient, di diskIterator, projectID, 
 	return nil
 }
 
-func doCleanupCmd(ctx context.Context, disksClient disksClient, projectID, zone string, dryRun bool) error {
+func doCleanupCmd(ctx context.Context, disksClient disksClient, projectID, zone string, doSnapshot bool, dryRun bool) error {
 	if dryRun {
 		log.Info().Msg("dry run mode is enabled -- no delete operations will be performed")
 	}
@@ -181,7 +185,7 @@ func doCleanupCmd(ctx context.Context, disksClient disksClient, projectID, zone 
 		Filter:  pointer.String(fmt.Sprintf("labels.%s:*", labelMarkedForDeletion)),
 	})
 	for {
-		err := doCleanupOne(ctx, disksClient, diskIter, projectID, zone, dryRun)
+		err := doCleanupOne(ctx, disksClient, diskIter, projectID, zone, doSnapshot, dryRun)
 		switch err {
 		case iterator.Done:
 			return nil
@@ -193,6 +197,27 @@ func doCleanupCmd(ctx context.Context, disksClient disksClient, projectID, zone 
 	}
 }
 
-func doCleanupOne(ctx context.Context, disksClient disksClient, diskIterator diskIterator, projectID, zone string, dryRun bool) error {
-	return xerrors.Errorf("TODO: not implemented yet")
+func doCleanupOne(ctx context.Context, dc disksClient, di diskIterator, projectID, zone string, doSnapshot, dryRun bool) error {
+	disk, err := di.Next()
+	if err == iterator.Done {
+		return err
+	}
+	if err != nil {
+		return xerrors.Errorf("iterating disks: %w", err)
+	}
+	diskLabels := disk.GetLabels()
+	if diskLabels == nil {
+		return xerrors.Errorf("skipping disk %s: missing required label", disk.GetName())
+	}
+	if labelValue, found := diskLabels[labelMarkedForDeletion]; !found {
+		return xerrors.Errorf("skipping disk %s: missing required label", disk.GetName())
+	} else if labelValue != "true" {
+		return xerrors.Errorf("skipping disk %s: expected label value true but got %q", disk.GetName(), labelValue)
+	}
+	if doSnapshot {
+		log.Info().Str("diskName", disk.GetName()).Int64("sizeGB", disk.GetSizeGb()).Str("lastAttachTime", disk.GetLastAttachTimestamp()).Str("labels", fmt.Sprintf("%+v", diskLabels)).Msg("snapshotting disk prior to deletion")
+
+	}
+	log.Warn().Str("diskName", disk.GetName()).Int64("sizeGB", disk.GetSizeGb()).Str("lastAttachTime", disk.GetLastAttachTimestamp()).Str("labels", fmt.Sprintf("%+v", diskLabels)).Msg("snapshotting disk prior to deletion")
+	return nil
 }

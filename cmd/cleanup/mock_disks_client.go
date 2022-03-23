@@ -22,6 +22,9 @@ var _ disksClient = &disksClientMock{}
 //
 // 		// make and configure a mocked disksClient
 // 		mockeddisksClient := &disksClientMock{
+// 			CreateSnapshotFunc: func(contextMoqParam context.Context, createSnapshotDiskRequest *computepb.CreateSnapshotDiskRequest, callOptions ...gax.CallOption) (*computev1.Operation, error) {
+// 				panic("mock out the CreateSnapshot method")
+// 			},
 // 			ListFunc: func(contextMoqParam context.Context, listDisksRequest *computepb.ListDisksRequest, callOptions ...gax.CallOption) *computev1.DiskIterator {
 // 				panic("mock out the List method")
 // 			},
@@ -35,6 +38,9 @@ var _ disksClient = &disksClientMock{}
 //
 // 	}
 type disksClientMock struct {
+	// CreateSnapshotFunc mocks the CreateSnapshot method.
+	CreateSnapshotFunc func(contextMoqParam context.Context, createSnapshotDiskRequest *computepb.CreateSnapshotDiskRequest, callOptions ...gax.CallOption) (*computev1.Operation, error)
+
 	// ListFunc mocks the List method.
 	ListFunc func(contextMoqParam context.Context, listDisksRequest *computepb.ListDisksRequest, callOptions ...gax.CallOption) *computev1.DiskIterator
 
@@ -43,6 +49,15 @@ type disksClientMock struct {
 
 	// calls tracks calls to the methods.
 	calls struct {
+		// CreateSnapshot holds details about calls to the CreateSnapshot method.
+		CreateSnapshot []struct {
+			// ContextMoqParam is the contextMoqParam argument value.
+			ContextMoqParam context.Context
+			// CreateSnapshotDiskRequest is the createSnapshotDiskRequest argument value.
+			CreateSnapshotDiskRequest *computepb.CreateSnapshotDiskRequest
+			// CallOptions is the callOptions argument value.
+			CallOptions []gax.CallOption
+		}
 		// List holds details about calls to the List method.
 		List []struct {
 			// ContextMoqParam is the contextMoqParam argument value.
@@ -62,8 +77,48 @@ type disksClientMock struct {
 			CallOptions []gax.CallOption
 		}
 	}
-	lockList      sync.RWMutex
-	lockSetLabels sync.RWMutex
+	lockCreateSnapshot sync.RWMutex
+	lockList           sync.RWMutex
+	lockSetLabels      sync.RWMutex
+}
+
+// CreateSnapshot calls CreateSnapshotFunc.
+func (mock *disksClientMock) CreateSnapshot(contextMoqParam context.Context, createSnapshotDiskRequest *computepb.CreateSnapshotDiskRequest, callOptions ...gax.CallOption) (*computev1.Operation, error) {
+	if mock.CreateSnapshotFunc == nil {
+		panic("disksClientMock.CreateSnapshotFunc: method is nil but disksClient.CreateSnapshot was just called")
+	}
+	callInfo := struct {
+		ContextMoqParam           context.Context
+		CreateSnapshotDiskRequest *computepb.CreateSnapshotDiskRequest
+		CallOptions               []gax.CallOption
+	}{
+		ContextMoqParam:           contextMoqParam,
+		CreateSnapshotDiskRequest: createSnapshotDiskRequest,
+		CallOptions:               callOptions,
+	}
+	mock.lockCreateSnapshot.Lock()
+	mock.calls.CreateSnapshot = append(mock.calls.CreateSnapshot, callInfo)
+	mock.lockCreateSnapshot.Unlock()
+	return mock.CreateSnapshotFunc(contextMoqParam, createSnapshotDiskRequest, callOptions...)
+}
+
+// CreateSnapshotCalls gets all the calls that were made to CreateSnapshot.
+// Check the length with:
+//     len(mockeddisksClient.CreateSnapshotCalls())
+func (mock *disksClientMock) CreateSnapshotCalls() []struct {
+	ContextMoqParam           context.Context
+	CreateSnapshotDiskRequest *computepb.CreateSnapshotDiskRequest
+	CallOptions               []gax.CallOption
+} {
+	var calls []struct {
+		ContextMoqParam           context.Context
+		CreateSnapshotDiskRequest *computepb.CreateSnapshotDiskRequest
+		CallOptions               []gax.CallOption
+	}
+	mock.lockCreateSnapshot.RLock()
+	calls = mock.calls.CreateSnapshot
+	mock.lockCreateSnapshot.RUnlock()
+	return calls
 }
 
 // List calls ListFunc.
