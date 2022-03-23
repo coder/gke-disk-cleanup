@@ -50,9 +50,8 @@ func main() {
 		projectID              string
 		zone                   string
 		filter                 string
+		verbose                bool
 	)
-	// pretty logging
-	log.Logger = log.Output(zerolog.ConsoleWriter{Out: os.Stderr}).Level(zerolog.InfoLevel)
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
@@ -66,6 +65,7 @@ func main() {
 	rootCmd.PersistentFlags().BoolVar(&dryRun, "dry-run", true, "only log the actions that would be taken")
 	rootCmd.PersistentFlags().StringVar(&projectID, "project-id", "default", "google project id")
 	rootCmd.PersistentFlags().StringVar(&zone, "zone", "us-east1-a", "google compute zone")
+	rootCmd.PersistentFlags().BoolVar(&verbose, "verbose", false, "verbose output")
 
 	markCmd := &cobra.Command{
 		Use:   "mark",
@@ -76,7 +76,7 @@ func main() {
 		},
 	}
 	markCmd.PersistentFlags().StringVar(&filter, "filter", filterGoogGkeVolume, "filters for list disk request")
-	markCmd.PersistentFlags().Int64Var(&lastAttachedCutoffDays, "last-attached-cutoff-days", 30, "how many days since the disk was last attached or detached")
+	markCmd.PersistentFlags().Int64Var(&lastAttachedCutoffDays, "cutoff", 30, "how many days since the disk was last attached or detached")
 
 	cleanupCmd := &cobra.Command{
 		Use:   "cleanup",
@@ -87,6 +87,13 @@ func main() {
 	}
 
 	cleanupCmd.PersistentFlags().BoolVar(&doSnapshot, "do-snapshot", true, "create a snapshot of the volume prior to deletion")
+
+	// pretty logging
+	logLevel := zerolog.InfoLevel
+	if verbose {
+		logLevel = zerolog.DebugLevel
+	}
+	log.Logger = log.Output(zerolog.ConsoleWriter{Out: os.Stderr}).Level(logLevel)
 
 	disksClient, err = computev1.NewDisksRESTClient(ctx)
 	if err != nil {
