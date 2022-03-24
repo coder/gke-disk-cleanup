@@ -71,6 +71,7 @@ func main() {
 		Use:   "mark",
 		Short: "mark disks for later deletion",
 		RunE: func(cmd *cobra.Command, args []string) error {
+			setupLogging(verbose)
 			cutoff := 24 * time.Hour * time.Duration(lastAttachedCutoffDays)
 			return doMarkCmd(ctx, disksClient, projectID, zone, filter, cutoff, dryRun)
 		},
@@ -82,18 +83,12 @@ func main() {
 		Use:   "cleanup",
 		Short: "cleanup disks in gcloud",
 		RunE: func(cmd *cobra.Command, _ []string) error {
+			setupLogging(verbose)
 			return doCleanupCmd(ctx, disksClient, projectID, zone, doSnapshot, dryRun)
 		},
 	}
 
 	cleanupCmd.PersistentFlags().BoolVar(&doSnapshot, "do-snapshot", true, "create a snapshot of the volume prior to deletion")
-
-	// pretty logging
-	logLevel := zerolog.InfoLevel
-	if verbose {
-		logLevel = zerolog.DebugLevel
-	}
-	log.Logger = log.Output(zerolog.ConsoleWriter{Out: os.Stderr}).Level(logLevel)
 
 	disksClient, err = computev1.NewDisksRESTClient(ctx)
 	if err != nil {
@@ -190,7 +185,7 @@ func doCleanupCmd(ctx context.Context, disksClient disksClient, projectID, zone 
 	diskIter := disksClient.List(ctx, &computepb.ListDisksRequest{
 		Project: projectID,
 		Zone:    zone,
-		Filter:  pointer.String(fmt.Sprintf("labels.%s:*", labelMarkedForDeletion)),
+		Filter:  pointer.String(fmt.Sprintf("labels.%s:true", labelMarkedForDeletion)),
 	})
 	for {
 		err := doCleanupOne(ctx, disksClient, diskIter, projectID, zone, doSnapshot, dryRun)
@@ -270,4 +265,13 @@ func doCleanupOne(ctx context.Context, dc disksClient, di diskIterator, projectI
 	}
 
 	return nil
+}
+
+func setupLogging(verbose bool) {
+	// pretty logging
+	if verbose {
+		log.Logger = log.Output(zerolog.ConsoleWriter{Out: os.Stderr}).Level(zerolog.DebugLevel)
+		return
+	}
+	log.Logger = log.Output(zerolog.ConsoleWriter{Out: os.Stderr}).Level(zerolog.InfoLevel)
 }
