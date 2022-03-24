@@ -2,7 +2,7 @@ all: clean fmt lint test build
 
 clean:
 	@echo "--- Cleaning up"
-	rm -f ./pvc-cleanup
+	rm -f ./gce-disk-cleanup
 
 .PHONY: fmt
 fmt:
@@ -20,8 +20,8 @@ test:
 	go test ./...
 
 .PHONY: build
-build: ./pvc-cleanup
+build: ./gce-disk-cleanup
 
-./pvc-cleanup:
+./gce-disk-cleanup:
 	@echo "--- Building"
-	go build ./cmd/pvc-cleanup
+	go build ./cmd/gce-disk-cleanup

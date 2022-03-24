@@ -57,7 +57,7 @@ func main() {
 	defer cancel()
 
 	rootCmd := &cobra.Command{
-		Use:   "pvc-cleanup",
+		Use:   "gce-disk-cleanup",
 		Short: "mark and clean up persistent disks in gcloud",
 		CompletionOptions: cobra.CompletionOptions{
 			DisableDefaultCmd: true,
@@ -241,7 +241,7 @@ func doCleanupOne(ctx context.Context, dc disksClient, di diskIterator, projectI
 				RequestId: pointer.String(reqID.String()),
 				SnapshotResource: &computepb.Snapshot{
 					Name:             &snapName,
-					Labels:           map[string]string{"created-by": "pvc-cleanup"},
+					Labels:           map[string]string{"created-by": "gce-disk-cleanup"},
 					StorageLocations: []string{disk.GetRegion()},
 				},
 				Zone: zone,
