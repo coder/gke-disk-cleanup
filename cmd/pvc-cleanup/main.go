@@ -240,8 +240,9 @@ func doCleanupOne(ctx context.Context, dc disksClient, di diskIterator, projectI
 				Project:   projectID,
 				RequestId: pointer.String(reqID.String()),
 				SnapshotResource: &computepb.Snapshot{
-					Name:   &snapName,
-					Labels: map[string]string{"created-by": "pvc-cleanup"},
+					Name:             &snapName,
+					Labels:           map[string]string{"created-by": "pvc-cleanup"},
+					StorageLocations: []string{disk.GetRegion()},
 				},
 				Zone: zone,
 			}

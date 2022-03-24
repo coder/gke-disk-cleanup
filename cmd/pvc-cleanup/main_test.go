@@ -315,6 +315,7 @@ func Test_CleanupCmd(t *testing.T) {
 				return &computepb.Disk{
 					Name:   pointer.String("test-disk"),
 					Labels: map[string]string{labelMarkedForDeletion: "true"},
+					Region: pointer.String("test-region"),
 				}, nil
 			},
 		}
@@ -322,6 +323,7 @@ func Test_CleanupCmd(t *testing.T) {
 		p.dc = &disksClientMock{
 			CreateSnapshotFunc: func(contextMoqParam context.Context, createSnapshotDiskRequest *computepb.CreateSnapshotDiskRequest, callOptions ...gax.CallOption) (*computev1.Operation, error) {
 				require.Equal(t, createSnapshotDiskRequest.GetSnapshotResource().GetName(), "test-disk-snapshot")
+				require.Contains(t, createSnapshotDiskRequest.GetSnapshotResource().GetStorageLocations(), "test-region")
 				require.Equal(t, createSnapshotDiskRequest.Disk, "test-disk")
 				require.Equal(t, createSnapshotDiskRequest.Project, p.projectID)
 				require.Equal(t, createSnapshotDiskRequest.Zone, p.zone)
