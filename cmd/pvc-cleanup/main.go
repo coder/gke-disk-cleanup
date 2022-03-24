@@ -136,12 +136,13 @@ func doMarkOne(ctx context.Context, dc disksClient, di diskIterator, projectID, 
 	}
 	log.Debug().Str("diskName", disk.GetName()).Int64("sizeGB", disk.GetSizeGb()).Str("lastAttachTime", disk.GetLastAttachTimestamp()).Str("labels", fmt.Sprintf("%v", disk.GetLabels())).Msg("got another disk")
 	lastAttachTimestampRFC3339 := disk.GetLastAttachTimestamp()
-	if lastAttachTimestampRFC3339 == "" {
-		return xerrors.Errorf("disk %s: last attached timestamp is empty", disk.GetName())
-	}
-	lastAttachTime, err := time.Parse(time.RFC3339, lastAttachTimestampRFC3339)
-	if err != nil {
-		return xerrors.Errorf("disk %s: last attached timestamp: %w", disk.GetName(), err)
+	// if last attached timestamp is empty then the disk was never attached
+	var lastAttachTime time.Time
+	if lastAttachTimestampRFC3339 != "" {
+		lastAttachTime, err = time.Parse(time.RFC3339, lastAttachTimestampRFC3339)
+		if err != nil {
+			return xerrors.Errorf("disk %s: last attached timestamp: %w", disk.GetName(), err)
+		}
 	}
 	if lastAttachTime.Add(cutoff).After(time.Now()) {
 		return errLastAttachedWithinCutoff

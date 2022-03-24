@@ -66,22 +66,6 @@ func Test_MarkCmd(t *testing.T) {
 		require.EqualError(t, err, "iterating disks: test error")
 	})
 
-	t.Run("empty timestamp", func(t *testing.T) {
-		t.Parallel()
-		p := setup(t)
-
-		p.di = &diskIteratorMock{
-			NextFunc: func() (*computepb.Disk, error) {
-				return &computepb.Disk{
-					Name:                pointer.String("test-disk"),
-					LastAttachTimestamp: pointer.String(""),
-				}, nil
-			},
-		}
-		err := doMarkOne(p.ctx, p.dc, p.di, p.projectID, p.zone, p.cutoff, p.dryRun)
-		require.ErrorContains(t, err, "disk test-disk: last attached timestamp is empty")
-	})
-
 	t.Run("invalid timestamp", func(t *testing.T) {
 		t.Parallel()
 		p := setup(t)
@@ -182,6 +166,30 @@ func Test_MarkCmd(t *testing.T) {
 				return &computepb.Disk{
 					Name:                pointer.String("test-disk"),
 					LastAttachTimestamp: pointer.String(time.Now().Add(-60 * 24 * time.Hour).Format(time.RFC3339)),
+				}, nil
+			},
+		}
+		p.dc = &disksClientMock{
+			SetLabelsFunc: func(contextMoqParam context.Context, setLabelsDiskRequest *computepb.SetLabelsDiskRequest, callOptions ...gax.CallOption) (*computev1.Operation, error) {
+				require.Equal(t, setLabelsDiskRequest.Project, p.projectID)
+				require.Equal(t, setLabelsDiskRequest.GetRequestId(), "mark-for-cleanup-test-disk")
+				return nil, nil
+			},
+		}
+		err := doMarkOne(p.ctx, p.dc, p.di, p.projectID, p.zone, p.cutoff, p.dryRun)
+		require.NoError(t, err)
+	})
+
+	t.Run("success - never attached", func(t *testing.T) {
+		t.Parallel()
+		p := setup(t)
+		p.dryRun = false
+
+		p.di = &diskIteratorMock{
+			NextFunc: func() (*computepb.Disk, error) {
+				return &computepb.Disk{
+					Name:                pointer.String("test-disk"),
+					LastAttachTimestamp: pointer.String(""),
 				}, nil
 			},
 		}
