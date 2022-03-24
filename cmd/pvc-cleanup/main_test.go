@@ -321,6 +321,7 @@ func Test_CleanupCmd(t *testing.T) {
 
 		p.dc = &disksClientMock{
 			CreateSnapshotFunc: func(contextMoqParam context.Context, createSnapshotDiskRequest *computepb.CreateSnapshotDiskRequest, callOptions ...gax.CallOption) (*computev1.Operation, error) {
+				require.Equal(t, createSnapshotDiskRequest.GetSnapshotResource().GetName(), "test-disk-snapshot")
 				require.Equal(t, createSnapshotDiskRequest.Disk, "test-disk")
 				require.Equal(t, createSnapshotDiskRequest.Project, p.projectID)
 				require.Equal(t, createSnapshotDiskRequest.Zone, p.zone)
@@ -365,6 +366,7 @@ func Test_CleanupCmd(t *testing.T) {
 
 		p.dc = &disksClientMock{
 			CreateSnapshotFunc: func(contextMoqParam context.Context, createSnapshotDiskRequest *computepb.CreateSnapshotDiskRequest, callOptions ...gax.CallOption) (*computev1.Operation, error) {
+				require.Equal(t, createSnapshotDiskRequest.SnapshotResource.Name, "test-disk-snapshot")
 				require.Equal(t, createSnapshotDiskRequest.Disk, "test-disk")
 				require.Equal(t, createSnapshotDiskRequest.Project, p.projectID)
 				require.Equal(t, createSnapshotDiskRequest.Zone, p.zone)

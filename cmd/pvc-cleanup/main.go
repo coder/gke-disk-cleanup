@@ -234,12 +234,16 @@ func doCleanupOne(ctx context.Context, dc disksClient, di diskIterator, projectI
 		} else {
 			log.Info().Str("diskName", disk.GetName()).Int64("sizeGB", disk.GetSizeGb()).Str("lastAttachTime", disk.GetLastAttachTimestamp()).Str("labels", fmt.Sprintf("%+v", diskLabels)).Msg("snapshotting disk prior to deletion")
 			reqID := uuid.New()
+			snapName := fmt.Sprintf("%s-snapshot", disk.GetName())
 			req := &computepb.CreateSnapshotDiskRequest{
-				Disk:             disk.GetName(),
-				Project:          projectID,
-				RequestId:        pointer.String(reqID.String()),
-				SnapshotResource: nil, // TODO: does this need to be non-nil?
-				Zone:             zone,
+				Disk:      disk.GetName(),
+				Project:   projectID,
+				RequestId: pointer.String(reqID.String()),
+				SnapshotResource: &computepb.Snapshot{
+					Name:   &snapName,
+					Labels: map[string]string{"created-by": "pvc-cleanup"},
+				},
+				Zone: zone,
 			}
 			op, err := dc.CreateSnapshot(ctx, req)
 			if err != nil {
