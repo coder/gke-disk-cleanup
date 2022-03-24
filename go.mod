@@ -1,4 +1,4 @@
-module pvc-cleanup
+module gke-disk-cleanup
 
 go 1.17
 

@@ -1,4 +1,4 @@
-# `gce-disk-cleanup`
+# `gke-disk-cleanup`
 
 This is a small utility to aid in cleaning up unused disks in a GKE environment.
 
@@ -6,7 +6,7 @@ This is a small utility to aid in cleaning up unused disks in a GKE environment.
 
 ```
 Usage:
-  gce-disk-cleanup [command]
+  gke-disk-cleanup [command]
 
 Available Commands:
   cleanup     cleanup disks in gcloud
@@ -15,14 +15,14 @@ Available Commands:
 
 Flags:
       --dry-run             only log the actions that would be taken (default true)
-  -h, --help                help for gce-disk-cleanup
+  -h, --help                help for gke-disk-cleanup
       --project-id string   google project id (default "default")
       --verbose             verbose output
       --zone string         google compute zone (default "us-east1-a")
 
 ```
 
-`gce-disk-cleanup` operates in two phases:
+`gke-disk-cleanup` operates in two phases:
 
 ### `mark` phase
 In the `mark` phase, disks in the specified project and zone are marked with a label `marked-for-deletion:true` based on their last attached timestamp. By default, disks that have not been attached in the last 30 days will be marked. This is configurable with the `--cutoff` parameter. Additionally, only disks with the label `goog-gke-volume` are considered by default -- to change this, use the `--filter` argument. See the [gcloud documentation](https://cloud.google.com/sdk/gcloud/reference/topic/filters) for more information on this topic.
@@ -39,5 +39,5 @@ In the `cleanup` phase, disks in the project and zone with the label `marked-for
 1. Ensure you have application default credentials available: `gcloud auth application-default login`
 1. Ensure you have `go` installed.
 1. Clone the git repository, navigate to it, and run `make build`.
-1. Run `./gce-disk-cleanup --help` to see the available options.
+1. Run `./gke-disk-cleanup --help` to see the available options.
 
