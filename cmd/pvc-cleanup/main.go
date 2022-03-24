@@ -7,6 +7,7 @@ import (
 	"time"
 
 	computev1 "cloud.google.com/go/compute/apiv1"
+	"github.com/google/uuid"
 	"github.com/googleapis/gax-go"
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
@@ -161,11 +162,11 @@ func doMarkOne(ctx context.Context, dc disksClient, di diskIterator, projectID, 
 	}
 	log.Warn().Str("diskName", disk.GetName()).Int64("sizeGB", disk.GetSizeGb()).Time("lastAttachTime", lastAttachTime).Str("labels", fmt.Sprintf("%+v", diskLabels)).Msg("marking disk for deletion")
 	diskLabels[labelMarkedForDeletion] = "true"
-	reqID := fmt.Sprintf("mark-for-cleanup-%s", disk.GetName())
+	reqID := uuid.New()
 	diskLabelsFingerprint := disk.GetLabelFingerprint()
 	setLabelsReq := &computepb.SetLabelsDiskRequest{
 		Project:   projectID,
-		RequestId: &reqID,
+		RequestId: pointer.String(reqID.String()),
 		Resource:  fmt.Sprintf("%d", disk.GetId()),
 		Zone:      zone,
 		ZoneSetLabelsRequestResource: &computepb.ZoneSetLabelsRequest{
@@ -228,10 +229,11 @@ func doCleanupOne(ctx context.Context, dc disksClient, di diskIterator, projectI
 			log.Info().Str("diskName", disk.GetName()).Int64("sizeGB", disk.GetSizeGb()).Str("lastAttachTime", disk.GetLastAttachTimestamp()).Str("labels", fmt.Sprintf("%+v", diskLabels)).Msg("dry run - would snapshot disk prior to deletion")
 		} else {
 			log.Info().Str("diskName", disk.GetName()).Int64("sizeGB", disk.GetSizeGb()).Str("lastAttachTime", disk.GetLastAttachTimestamp()).Str("labels", fmt.Sprintf("%+v", diskLabels)).Msg("snapshotting disk prior to deletion")
+			reqID := uuid.New()
 			req := &computepb.CreateSnapshotDiskRequest{
 				Disk:             disk.GetName(),
 				Project:          projectID,
-				RequestId:        pointer.String(fmt.Sprintf("snapshot-disk-%s", disk.GetName())),
+				RequestId:        pointer.String(reqID.String()),
 				SnapshotResource: nil, // TODO: does this need to be non-nil?
 				Zone:             zone,
 			}
@@ -254,10 +256,11 @@ func doCleanupOne(ctx context.Context, dc disksClient, di diskIterator, projectI
 	}
 
 	log.Warn().Str("diskName", disk.GetName()).Int64("sizeGB", disk.GetSizeGb()).Str("lastAttachTime", disk.GetLastAttachTimestamp()).Str("labels", fmt.Sprintf("%+v", diskLabels)).Msg("deleting disk")
+	reqID := uuid.New()
 	req := &computepb.DeleteDiskRequest{
 		Disk:      disk.GetName(),
 		Project:   projectID,
-		RequestId: pointer.String(fmt.Sprintf("delete-disk-%s", disk.GetName())),
+		RequestId: pointer.String(reqID.String()),
 		Zone:      zone,
 	}
 	_, err = dc.Delete(ctx, req)

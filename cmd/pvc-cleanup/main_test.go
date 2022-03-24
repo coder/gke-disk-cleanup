@@ -148,7 +148,7 @@ func Test_MarkCmd(t *testing.T) {
 		p.dc = &disksClientMock{
 			SetLabelsFunc: func(contextMoqParam context.Context, setLabelsDiskRequest *computepb.SetLabelsDiskRequest, callOptions ...gax.CallOption) (*computev1.Operation, error) {
 				require.Equal(t, setLabelsDiskRequest.Project, p.projectID)
-				require.Equal(t, setLabelsDiskRequest.GetRequestId(), "mark-for-cleanup-test-disk")
+				require.NotEmpty(t, setLabelsDiskRequest.GetRequestId())
 				return nil, xerrors.Errorf("test error")
 			},
 		}
@@ -172,7 +172,7 @@ func Test_MarkCmd(t *testing.T) {
 		p.dc = &disksClientMock{
 			SetLabelsFunc: func(contextMoqParam context.Context, setLabelsDiskRequest *computepb.SetLabelsDiskRequest, callOptions ...gax.CallOption) (*computev1.Operation, error) {
 				require.Equal(t, setLabelsDiskRequest.Project, p.projectID)
-				require.Equal(t, setLabelsDiskRequest.GetRequestId(), "mark-for-cleanup-test-disk")
+				require.NotEmpty(t, setLabelsDiskRequest.GetRequestId())
 				return nil, nil
 			},
 		}
@@ -196,7 +196,7 @@ func Test_MarkCmd(t *testing.T) {
 		p.dc = &disksClientMock{
 			SetLabelsFunc: func(contextMoqParam context.Context, setLabelsDiskRequest *computepb.SetLabelsDiskRequest, callOptions ...gax.CallOption) (*computev1.Operation, error) {
 				require.Equal(t, setLabelsDiskRequest.Project, p.projectID)
-				require.Equal(t, setLabelsDiskRequest.GetRequestId(), "mark-for-cleanup-test-disk")
+				require.NotEmpty(t, setLabelsDiskRequest.GetRequestId())
 				return nil, nil
 			},
 		}
@@ -373,7 +373,7 @@ func Test_CleanupCmd(t *testing.T) {
 			DeleteFunc: func(contextMoqParam context.Context, deleteDiskRequest *computepb.DeleteDiskRequest, callOptions ...gax.CallOption) (*computev1.Operation, error) {
 				require.Equal(t, deleteDiskRequest.Disk, "test-disk")
 				require.Equal(t, deleteDiskRequest.Project, p.projectID)
-				require.Equal(t, deleteDiskRequest.RequestId, pointer.String("delete-disk-test-disk"))
+				require.NotEmpty(t, deleteDiskRequest.RequestId)
 				require.Equal(t, deleteDiskRequest.Zone, p.zone)
 
 				return nil, xerrors.Errorf("google says no")
@@ -403,7 +403,7 @@ func Test_CleanupCmd(t *testing.T) {
 			DeleteFunc: func(contextMoqParam context.Context, deleteDiskRequest *computepb.DeleteDiskRequest, callOptions ...gax.CallOption) (*computev1.Operation, error) {
 				require.Equal(t, deleteDiskRequest.Disk, "test-disk")
 				require.Equal(t, deleteDiskRequest.Project, p.projectID)
-				require.Equal(t, deleteDiskRequest.RequestId, pointer.String("delete-disk-test-disk"))
+				require.NotEmpty(t, deleteDiskRequest.RequestId)
 				require.Equal(t, deleteDiskRequest.Zone, p.zone)
 
 				return &computev1.Operation{}, nil
