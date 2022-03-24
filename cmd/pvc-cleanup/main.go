@@ -115,6 +115,8 @@ func doMarkCmd(ctx context.Context, disksClient disksClient, projectID, zone, fi
 	for {
 		err := doMarkOne(ctx, disksClient, diskIter, projectID, zone, cutoff, dryRun)
 		switch err {
+		case nil:
+			continue
 		case iterator.Done:
 			return nil
 		case errLastAttachedWithinCutoff:
@@ -192,6 +194,8 @@ func doCleanupCmd(ctx context.Context, disksClient disksClient, projectID, zone 
 	for {
 		err := doCleanupOne(ctx, disksClient, diskIter, projectID, zone, doSnapshot, dryRun)
 		switch err {
+		case nil:
+			continue
 		case iterator.Done:
 			return nil
 		case errDryRun:
