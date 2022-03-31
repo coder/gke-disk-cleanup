@@ -23,6 +23,7 @@ var (
 	labelMarkedForDeletion      = "marked-for-deletion"
 	errLastAttachedWithinCutoff = xerrors.Errorf("disk last attached within cutoff")
 	errAlreadyLabelled          = xerrors.Errorf("disk already labelled")
+	errUnlabelled               = xerrors.Errorf("disk explicitly unmarked for deletion")
 	errDryRun                   = xerrors.Errorf("dry run enabled")
 )
 
@@ -195,8 +196,12 @@ func handleMarkAction(lastAttachTimestamp string, labels map[string]string, cuto
 		return actionSkip, nil
 	}
 	// already labelled and not attached before cutoff
-	if labelFound && labelVal == "true" {
-		return actionSkip, errAlreadyLabelled
+	if labelFound {
+		if labelVal == "true" {
+			return actionSkip, errAlreadyLabelled
+		} else {
+			return actionSkip, errUnlabelled
+		}
 	}
 	return actionMark, nil
 

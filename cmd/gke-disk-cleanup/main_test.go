@@ -116,16 +116,53 @@ func Test_MarkCmd(t *testing.T) {
 		require.EqualError(t, err, errAlreadyLabelled.Error())
 	})
 
-	t.Run("dry run", func(t *testing.T) {
+	t.Run("noop - unlabelled", func(t *testing.T) {
 		t.Parallel()
 		p := setup(t)
+		p.dryRun = false
 
 		p.di = &diskIteratorMock{
 			NextFunc: func() (*computepb.Disk, error) {
 				return &computepb.Disk{
 					Name:                pointer.String("test-disk"),
-					LastAttachTimestamp: pointer.String(time.Now().Add(-60 * 24 * time.Hour).Format(time.RFC3339)),
+					LastAttachTimestamp: pointer.String(time.Now().AddDate(0, 0, -60).Format(time.RFC3339)),
+					Labels:              map[string]string{labelMarkedForDeletion: "false"},
 				}, nil
+			},
+		}
+		err := doMarkOne(p.ctx, p.dc, p.di, p.projectID, p.zone, p.cutoff, p.dryRun)
+		require.EqualError(t, err, errUnlabelled.Error())
+	})
+
+	t.Run("dry run - mark", func(t *testing.T) {
+		t.Parallel()
+		p := setup(t)
+		disk := &computepb.Disk{
+			Name:                pointer.String("test-disk"),
+			LastAttachTimestamp: pointer.String(time.Now().AddDate(0, 0, -60).Format(time.RFC3339)),
+		}
+
+		p.di = &diskIteratorMock{
+			NextFunc: func() (*computepb.Disk, error) {
+				return disk, nil
+			},
+		}
+		err := doMarkOne(p.ctx, p.dc, p.di, p.projectID, p.zone, p.cutoff, p.dryRun)
+		require.EqualError(t, err, errDryRun.Error())
+	})
+
+	t.Run("dry run - unmark", func(t *testing.T) {
+		t.Parallel()
+		p := setup(t)
+		disk := &computepb.Disk{
+			Name:                pointer.String("test-disk"),
+			LastAttachTimestamp: pointer.String(time.Now().Format(time.RFC3339)),
+			Labels:              map[string]string{labelMarkedForDeletion: "true"},
+		}
+
+		p.di = &diskIteratorMock{
+			NextFunc: func() (*computepb.Disk, error) {
+				return disk, nil
 			},
 		}
 		err := doMarkOne(p.ctx, p.dc, p.di, p.projectID, p.zone, p.cutoff, p.dryRun)
@@ -141,7 +178,7 @@ func Test_MarkCmd(t *testing.T) {
 			NextFunc: func() (*computepb.Disk, error) {
 				return &computepb.Disk{
 					Name:                pointer.String("test-disk"),
-					LastAttachTimestamp: pointer.String(time.Now().Add(-60 * 24 * time.Hour).Format(time.RFC3339)),
+					LastAttachTimestamp: pointer.String(time.Now().AddDate(0, 0, -60).Format(time.RFC3339)),
 				}, nil
 			},
 		}
@@ -156,7 +193,7 @@ func Test_MarkCmd(t *testing.T) {
 		require.EqualError(t, err, "error updating disk labels: test error")
 	})
 
-	t.Run("success", func(t *testing.T) {
+	t.Run("success - mark", func(t *testing.T) {
 		t.Parallel()
 		p := setup(t)
 		p.dryRun = false
@@ -165,13 +202,40 @@ func Test_MarkCmd(t *testing.T) {
 			NextFunc: func() (*computepb.Disk, error) {
 				return &computepb.Disk{
 					Name:                pointer.String("test-disk"),
-					LastAttachTimestamp: pointer.String(time.Now().Add(-60 * 24 * time.Hour).Format(time.RFC3339)),
+					LastAttachTimestamp: pointer.String(time.Now().AddDate(0, 0, -60).Format(time.RFC3339)),
 				}, nil
 			},
 		}
 		p.dc = &disksClientMock{
 			SetLabelsFunc: func(contextMoqParam context.Context, setLabelsDiskRequest *computepb.SetLabelsDiskRequest, callOptions ...gax.CallOption) (*computev1.Operation, error) {
 				require.Equal(t, setLabelsDiskRequest.Project, p.projectID)
+				require.Equal(t, "true", setLabelsDiskRequest.ZoneSetLabelsRequestResource.Labels[labelMarkedForDeletion])
+				require.NotEmpty(t, setLabelsDiskRequest.GetRequestId())
+				return nil, nil
+			},
+		}
+		err := doMarkOne(p.ctx, p.dc, p.di, p.projectID, p.zone, p.cutoff, p.dryRun)
+		require.NoError(t, err)
+	})
+
+	t.Run("success - unmark", func(t *testing.T) {
+		t.Parallel()
+		p := setup(t)
+		p.dryRun = false
+
+		p.di = &diskIteratorMock{
+			NextFunc: func() (*computepb.Disk, error) {
+				return &computepb.Disk{
+					Name:                pointer.String("important-disk"),
+					LastAttachTimestamp: pointer.String(time.Now().Format(time.RFC3339)),
+					Labels:              map[string]string{labelMarkedForDeletion: "true"},
+				}, nil
+			},
+		}
+		p.dc = &disksClientMock{
+			SetLabelsFunc: func(contextMoqParam context.Context, setLabelsDiskRequest *computepb.SetLabelsDiskRequest, callOptions ...gax.CallOption) (*computev1.Operation, error) {
+				require.Equal(t, setLabelsDiskRequest.Project, p.projectID)
+				require.Equal(t, "false", setLabelsDiskRequest.ZoneSetLabelsRequestResource.Labels[labelMarkedForDeletion])
 				require.NotEmpty(t, setLabelsDiskRequest.GetRequestId())
 				return nil, nil
 			},
@@ -196,6 +260,7 @@ func Test_MarkCmd(t *testing.T) {
 		p.dc = &disksClientMock{
 			SetLabelsFunc: func(contextMoqParam context.Context, setLabelsDiskRequest *computepb.SetLabelsDiskRequest, callOptions ...gax.CallOption) (*computev1.Operation, error) {
 				require.Equal(t, setLabelsDiskRequest.Project, p.projectID)
+				require.Equal(t, "true", setLabelsDiskRequest.ZoneSetLabelsRequestResource.Labels[labelMarkedForDeletion])
 				require.NotEmpty(t, setLabelsDiskRequest.GetRequestId())
 				return nil, nil
 			},
@@ -237,6 +302,14 @@ func Test_HandleMarkAction(t *testing.T) {
 			cutoff:              24 * time.Hour,
 			expectedAction:      actionSkip,
 			expectedError:       errAlreadyLabelled.Error(),
+		},
+		{
+			name:                "should skip already unmarked if last attached before cutoff",
+			lastAttachTimestamp: time.Now().AddDate(-1, 0, 0).Format(time.RFC3339),
+			labels:              map[string]string{labelMarkedForDeletion: `anything not "true" is interpreted as false`},
+			cutoff:              24 * time.Hour,
+			expectedAction:      actionSkip,
+			expectedError:       errUnlabelled.Error(),
 		},
 		{
 			name:                "should mark for deletion if last attached before cutoff",
