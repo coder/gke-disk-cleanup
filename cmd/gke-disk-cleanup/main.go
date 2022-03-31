@@ -139,7 +139,7 @@ func doMarkOne(ctx context.Context, dc disksClient, di diskIterator, projectID, 
 	}
 	action, err := handleMarkAction(disk.GetLastAttachTimestamp(), disk.GetLabels(), cutoff)
 	if err != nil {
-		return xerrors.Errorf("disk %s: %w", disk.GetName(), err)
+		return err
 	}
 	log.Info().Str("diskName", disk.GetName()).
 		Int64("sizeGB", disk.GetSizeGb()).
@@ -156,6 +156,11 @@ func doMarkOne(ctx context.Context, dc disksClient, di diskIterator, projectID, 
 			return errDryRun
 		}
 		return handleSetLabel(ctx, dc, disk, projectID, zone, labelMarkedForDeletion, "true")
+	case actionUnmark:
+		if dryRun {
+			return errDryRun
+		}
+		return handleSetLabel(ctx, dc, disk, projectID, zone, labelMarkedForDeletion, "false")
 	default:
 		return xerrors.Errorf("unhandled action %s", action)
 	}
@@ -165,6 +170,7 @@ type action string
 
 const actionSkip = ""
 const actionMark = "MARK"
+const actionUnmark = "UNMARK"
 
 func handleMarkAction(lastAttachTimestamp string, labels map[string]string, cutoff time.Duration) (action, error) {
 	if lastAttachTimestamp == "" {
@@ -180,12 +186,12 @@ func handleMarkAction(lastAttachTimestamp string, labels map[string]string, cuto
 		labels = make(map[string]string)
 	}
 	labelVal, labelFound := labels[labelMarkedForDeletion]
-	if labelFound {
-		return actionSkip, nil
-	}
-
 	lastAttachedWithinCutoff := time.Since(lastAttachTime) < cutoff
 	if lastAttachedWithinCutoff {
+		// previously labelled but attached again later -> unmark
+		if labelFound && labelVal == "true" {
+			return actionUnmark, nil
+		}
 		return actionSkip, nil
 	}
 	// already labelled and not attached before cutoff

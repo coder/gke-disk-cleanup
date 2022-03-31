@@ -203,71 +203,79 @@ func Test_MarkCmd(t *testing.T) {
 		err := doMarkOne(p.ctx, p.dc, p.di, p.projectID, p.zone, p.cutoff, p.dryRun)
 		require.NoError(t, err)
 	})
+}
 
-	t.Run("handleMarkAction", func(t *testing.T) {
-		testCases := []struct {
-			name                string
-			lastAttachTimestamp string
-			labels              map[string]string
-			cutoff              time.Duration
-			expectedAction      action
-			expectedError       string
-		}{
-			{
-				name:                "should mark empty timestamp",
-				lastAttachTimestamp: "",
-				labels:              nil,
-				cutoff:              24 * time.Hour,
-				expectedAction:      actionMark,
-				expectedError:       "",
-			},
-			{
-				name:                "should skip invalid timestamp",
-				lastAttachTimestamp: "foobarbaz",
-				labels:              nil,
-				cutoff:              24 * time.Hour,
-				expectedAction:      actionSkip,
-				expectedError:       `parse last attached timestamp: parsing time "foobarbaz" as "2006-01-02T15:04:05Z07:00": cannot parse "foobarbaz" as "2006"`,
-			},
-			{
-				name:                "should skip already marked for deletion if last attached before cutoff",
-				lastAttachTimestamp: time.Now().AddDate(-1, 0, 0).Format(time.RFC3339),
-				labels:              map[string]string{labelMarkedForDeletion: "true"},
-				cutoff:              24 * time.Hour,
-				expectedAction:      actionSkip,
-				expectedError:       "",
-			},
-			{
-				name:                "should mark for deletion if last attached before cutoff",
-				lastAttachTimestamp: time.Now().AddDate(-1, 0, 0).Format(time.RFC3339),
-				labels:              nil,
-				cutoff:              24 * time.Hour,
-				expectedAction:      actionMark,
-				expectedError:       "",
-			},
-			{
-				name:                "should skip if not already marked and last attached within cutoff",
-				lastAttachTimestamp: time.Now().Format(time.RFC3339),
-				labels:              nil,
-				cutoff:              24 * time.Hour,
-				expectedAction:      actionSkip,
-				expectedError:       "",
-			},
-		}
+func Test_HandleMarkAction(t *testing.T) {
+	testCases := []struct {
+		name                string
+		lastAttachTimestamp string
+		labels              map[string]string
+		cutoff              time.Duration
+		expectedAction      action
+		expectedError       string
+	}{
+		{
+			name:                "should mark empty timestamp",
+			lastAttachTimestamp: "",
+			labels:              nil,
+			cutoff:              24 * time.Hour,
+			expectedAction:      actionMark,
+			expectedError:       "",
+		},
+		{
+			name:                "should skip invalid timestamp",
+			lastAttachTimestamp: "foobarbaz",
+			labels:              nil,
+			cutoff:              24 * time.Hour,
+			expectedAction:      actionSkip,
+			expectedError:       `parse last attached timestamp: parsing time "foobarbaz" as "2006-01-02T15:04:05Z07:00": cannot parse "foobarbaz" as "2006"`,
+		},
+		{
+			name:                "should skip already marked for deletion if last attached before cutoff",
+			lastAttachTimestamp: time.Now().AddDate(-1, 0, 0).Format(time.RFC3339),
+			labels:              map[string]string{labelMarkedForDeletion: "true"},
+			cutoff:              24 * time.Hour,
+			expectedAction:      actionSkip,
+			expectedError:       errAlreadyLabelled.Error(),
+		},
+		{
+			name:                "should mark for deletion if last attached before cutoff",
+			lastAttachTimestamp: time.Now().AddDate(-1, 0, 0).Format(time.RFC3339),
+			labels:              nil,
+			cutoff:              24 * time.Hour,
+			expectedAction:      actionMark,
+			expectedError:       "",
+		},
+		{
+			name:                "should unmark if already marked and last attached within cutoff",
+			lastAttachTimestamp: time.Now().Format(time.RFC3339),
+			labels:              map[string]string{labelMarkedForDeletion: "true"},
+			cutoff:              24 * time.Hour,
+			expectedAction:      actionUnmark,
+			expectedError:       "",
+		},
+		{
+			name:                "should skip if not already marked and last attached within cutoff",
+			lastAttachTimestamp: time.Now().Format(time.RFC3339),
+			labels:              nil,
+			cutoff:              24 * time.Hour,
+			expectedAction:      actionSkip,
+			expectedError:       "",
+		},
+	}
 
-		for _, testCase := range testCases {
-			testCase := testCase
-			t.Run(testCase.name, func(t *testing.T) {
-				actualAction, actualError := handleMarkAction(testCase.lastAttachTimestamp, testCase.labels, testCase.cutoff)
-				require.Equal(t, testCase.expectedAction, actualAction)
-				if testCase.expectedError == "" {
-					require.NoError(t, actualError)
-				} else {
-					require.Equal(t, testCase.expectedError, actualError.Error())
-				}
-			})
-		}
-	})
+	for _, testCase := range testCases {
+		testCase := testCase
+		t.Run(testCase.name, func(t *testing.T) {
+			actualAction, actualError := handleMarkAction(testCase.lastAttachTimestamp, testCase.labels, testCase.cutoff)
+			require.Equal(t, testCase.expectedAction, actualAction)
+			if testCase.expectedError == "" {
+				require.NoError(t, actualError)
+			} else {
+				require.Equal(t, testCase.expectedError, actualError.Error())
+			}
+		})
+	}
 }
 
 func Test_CleanupCmd(t *testing.T) {
