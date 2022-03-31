@@ -120,6 +120,8 @@ func doMarkCmd(ctx context.Context, disksClient disksClient, projectID, zone, fi
 			continue
 		case iterator.Done:
 			return nil
+		case errAlreadyLabelled:
+			log.Debug().Msg("ignore disk already labelled")
 		case errLastAttachedWithinCutoff:
 			log.Debug().Msg("ignoring disk last attached within cutoff")
 		case errDryRun:
@@ -139,16 +141,17 @@ func doMarkOne(ctx context.Context, dc disksClient, di diskIterator, projectID, 
 		return xerrors.Errorf("iterating disks: %w", err)
 	}
 	action, err := handleMarkAction(disk.GetLastAttachTimestamp(), disk.GetLabels(), cutoff)
-	if err != nil {
-		return err
-	}
 	log.Info().Str("diskName", disk.GetName()).
 		Int64("sizeGB", disk.GetSizeGb()).
 		Str("lastAttachTime", disk.GetLastAttachTimestamp()).
 		Str("labels", fmt.Sprintf("%+v", disk.GetLabels())).
 		Str("action", string(action)).
 		Bool("dryRun", dryRun).
+		Err(err).
 		Send()
+	if err != nil {
+		return err
+	}
 	switch action {
 	case actionSkip:
 		return nil
@@ -169,7 +172,7 @@ func doMarkOne(ctx context.Context, dc disksClient, di diskIterator, projectID, 
 
 type action string
 
-const actionSkip = ""
+const actionSkip = "SKIP"
 const actionMark = "MARK"
 const actionUnmark = "UNMARK"
 
