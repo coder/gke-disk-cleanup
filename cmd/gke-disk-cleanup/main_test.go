@@ -107,13 +107,13 @@ func Test_MarkCmd(t *testing.T) {
 			NextFunc: func() (*computepb.Disk, error) {
 				return &computepb.Disk{
 					Name:                pointer.String("test-disk"),
-					LastAttachTimestamp: pointer.String(time.Now().Add(-60 * 24 * time.Hour).Format(time.RFC3339)),
-					Labels:              map[string]string{labelMarkedForDeletion: "sometime"},
+					LastAttachTimestamp: pointer.String(time.Now().AddDate(0, 0, -60).Format(time.RFC3339)),
+					Labels:              map[string]string{labelMarkedForDeletion: "true"},
 				}, nil
 			},
 		}
 		err := doMarkOne(p.ctx, p.dc, p.di, p.projectID, p.zone, p.cutoff, p.dryRun)
-		require.NoError(t, err)
+		require.EqualError(t, err, errAlreadyLabelled.Error())
 	})
 
 	t.Run("dry run", func(t *testing.T) {
