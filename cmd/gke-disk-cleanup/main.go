@@ -137,33 +137,71 @@ func doMarkOne(ctx context.Context, dc disksClient, di diskIterator, projectID, 
 	if err != nil {
 		return xerrors.Errorf("iterating disks: %w", err)
 	}
-	log.Debug().Str("diskName", disk.GetName()).Int64("sizeGB", disk.GetSizeGb()).Str("lastAttachTime", disk.GetLastAttachTimestamp()).Str("labels", fmt.Sprintf("%v", disk.GetLabels())).Msg("got another disk")
-	lastAttachTimestampRFC3339 := disk.GetLastAttachTimestamp()
-	// if last attached timestamp is empty then the disk was never attached
-	var lastAttachTime time.Time
-	if lastAttachTimestampRFC3339 != "" {
-		lastAttachTime, err = time.Parse(time.RFC3339, lastAttachTimestampRFC3339)
-		if err != nil {
-			return xerrors.Errorf("disk %s: last attached timestamp: %w", disk.GetName(), err)
+	action, err := handleMarkAction(disk.GetLastAttachTimestamp(), disk.GetLabels(), cutoff)
+	if err != nil {
+		return xerrors.Errorf("disk %s: %w", disk.GetName(), err)
+	}
+	log.Info().Str("diskName", disk.GetName()).
+		Int64("sizeGB", disk.GetSizeGb()).
+		Str("lastAttachTime", disk.GetLastAttachTimestamp()).
+		Str("labels", fmt.Sprintf("%+v", disk.GetLabels())).
+		Str("action", string(action)).
+		Bool("dryRun", dryRun).
+		Send()
+	switch action {
+	case actionSkip:
+		return nil
+	case actionMark:
+		if dryRun {
+			return errDryRun
 		}
+		return handleSetLabel(ctx, dc, disk, projectID, zone, labelMarkedForDeletion, "true")
+	default:
+		return xerrors.Errorf("unhandled action %s", action)
 	}
-	if lastAttachTime.Add(cutoff).After(time.Now()) {
-		return errLastAttachedWithinCutoff
+}
+
+type action string
+
+const actionSkip = ""
+const actionMark = "MARK"
+
+func handleMarkAction(lastAttachTimestamp string, labels map[string]string, cutoff time.Duration) (action, error) {
+	if lastAttachTimestamp == "" {
+		return actionMark, nil
 	}
+
+	lastAttachTime, err := time.Parse(time.RFC3339, lastAttachTimestamp)
+	if err != nil {
+		return actionSkip, xerrors.Errorf("parse last attached timestamp: %w", err)
+	}
+
+	if labels == nil {
+		labels = make(map[string]string)
+	}
+	labelVal, labelFound := labels[labelMarkedForDeletion]
+	if labelFound {
+		return actionSkip, nil
+	}
+
+	lastAttachedWithinCutoff := time.Since(lastAttachTime) < cutoff
+	if lastAttachedWithinCutoff {
+		return actionSkip, nil
+	}
+	// already labelled and not attached before cutoff
+	if labelFound && labelVal == "true" {
+		return actionSkip, errAlreadyLabelled
+	}
+	return actionMark, nil
+
+}
+
+func handleSetLabel(ctx context.Context, dc disksClient, disk *computepb.Disk, projectID, zone, k, v string) error {
 	diskLabels := disk.GetLabels()
 	if diskLabels == nil {
 		diskLabels = make(map[string]string)
 	}
-	if dryRun {
-		log.Warn().Str("diskName", disk.GetName()).Int64("sizeGB", disk.GetSizeGb()).Time("lastAttachTime", lastAttachTime).Str("labels", fmt.Sprintf("%+v", diskLabels)).Msg("would mark disk for deletion")
-		return errDryRun
-	}
-	if _, found := diskLabels[labelMarkedForDeletion]; found {
-		log.Debug().Str("diskName", disk.GetName()).Int64("sizeGB", disk.GetSizeGb()).Time("lastAttachTime", lastAttachTime).Str("labels", fmt.Sprintf("%+v", diskLabels)).Msg("disk already labelled")
-		return errAlreadyLabelled
-	}
-	log.Warn().Str("diskName", disk.GetName()).Int64("sizeGB", disk.GetSizeGb()).Time("lastAttachTime", lastAttachTime).Str("labels", fmt.Sprintf("%+v", diskLabels)).Msg("marking disk for deletion")
-	diskLabels[labelMarkedForDeletion] = "true"
+	diskLabels[k] = v
 	reqID := uuid.New()
 	diskLabelsFingerprint := disk.GetLabelFingerprint()
 	setLabelsReq := &computepb.SetLabelsDiskRequest{
