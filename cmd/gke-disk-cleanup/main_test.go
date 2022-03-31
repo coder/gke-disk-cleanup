@@ -288,6 +288,14 @@ func Test_HandleMarkAction(t *testing.T) {
 			expectedError:       "",
 		},
 		{
+			name:                "should skip already marked empty timestamp",
+			lastAttachTimestamp: "",
+			labels:              map[string]string{labelMarkedForDeletion: "true"},
+			cutoff:              24 * time.Hour,
+			expectedAction:      actionSkip,
+			expectedError:       errAlreadyLabelled.Error(),
+		},
+		{
 			name:                "should skip invalid timestamp",
 			lastAttachTimestamp: "foobarbaz",
 			labels:              nil,

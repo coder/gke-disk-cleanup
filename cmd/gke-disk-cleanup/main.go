@@ -177,13 +177,14 @@ const actionMark = "MARK"
 const actionUnmark = "UNMARK"
 
 func handleMarkAction(lastAttachTimestamp string, labels map[string]string, cutoff time.Duration) (action, error) {
-	if lastAttachTimestamp == "" {
-		return actionMark, nil
-	}
-
-	lastAttachTime, err := time.Parse(time.RFC3339, lastAttachTimestamp)
-	if err != nil {
-		return actionSkip, xerrors.Errorf("parse last attached timestamp: %w", err)
+	var lastAttachTime time.Time
+	var err error
+	// lastAttachTimestamp being empty means the disk was never attached. We can use the zero time to represent this.
+	if lastAttachTimestamp != "" {
+		lastAttachTime, err = time.Parse(time.RFC3339, lastAttachTimestamp)
+		if err != nil {
+			return actionSkip, xerrors.Errorf("parse last attached timestamp: %w", err)
+		}
 	}
 
 	if labels == nil {
