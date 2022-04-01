@@ -252,7 +252,7 @@ func doCleanupCmd(ctx context.Context, disksClient disksClient, projectID, zone 
 		case iterator.Done:
 			return nil
 		case errDryRun:
-			log.Debug().Msg("not labelling disk as dry run enabled")
+			log.Debug().Msg("not deleting disk as dry run enabled")
 		default:
 			log.Error().Err(err).Msg("unable to delete disk")
 		}
