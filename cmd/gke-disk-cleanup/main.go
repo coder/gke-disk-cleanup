@@ -287,7 +287,6 @@ func doCleanupOne(ctx context.Context, dc disksClient, di diskIterator, projectI
 		} else {
 			log.Info().Str("diskName", disk.GetName()).Int64("sizeGB", disk.GetSizeGb()).Str("lastAttachTime", disk.GetLastAttachTimestamp()).Str("labels", fmt.Sprintf("%+v", diskLabels)).Msg("snapshotting disk prior to deletion")
 			reqID := uuid.New()
-			snapName := fmt.Sprintf("%s-snapshot", disk.GetName())
 			diskLabels := disk.GetLabels()
 			if diskLabels == nil {
 				diskLabels = make(map[string]string)
@@ -298,7 +297,7 @@ func doCleanupOne(ctx context.Context, dc disksClient, di diskIterator, projectI
 				Project:   projectID,
 				RequestId: pointer.String(reqID.String()),
 				SnapshotResource: &computepb.Snapshot{
-					Name:             &snapName,
+					Name:             pointer.String(disk.GetName()),
 					Description:      pointer.String(disk.GetDescription()),
 					Labels:           diskLabels,
 					StorageLocations: []string{disk.GetRegion()},
